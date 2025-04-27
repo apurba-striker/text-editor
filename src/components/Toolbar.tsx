@@ -12,7 +12,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ applyFormat, undo, redo, inser
   return (
     <div className="flex flex-wrap gap-2 mb-4">
       {/* Formatting buttons */}
-      <button onClick={() => applyFormat("bold")} className="">Bold</button>
+      <button onClick={() => applyFormat("bold")} className="px-2 py-1 rounded bg-gray-200 hover:bg-blue-300 text-sm">Bold</button>
       <button onClick={() => applyFormat("italic")} className="px-2 py-1 rounded bg-gray-200 hover:bg-blue-300 text-sm;">Italic</button>
       <button onClick={() => applyFormat("underline")} className="px-2 py-1 rounded bg-gray-200 hover:bg-blue-300 text-sm;">Underline</button>
       <button onClick={() => applyFormat("formatBlock_h1")} className="px-2 py-1 rounded bg-gray-200 hover:bg-blue-300 text-sm;">H1</button>
