@@ -1,20 +1,38 @@
-import { useCallback, useState } from "react";
+import { useState, useCallback } from "react";
 
 export const useEditorState = (editorRef: any) => {
   const LOCAL_STORAGE_KEY = "editor-content";
 
+  const [history, setHistory] = useState<{ html: string; selection: Range | null }[]>([]);
+  const [redoStack, setRedoStack] = useState<{ html: string; selection: Range | null }[]>([]);
+
   let timeout: NodeJS.Timeout | null = null;
 
-const saveContent = () => {
-  if (timeout) clearTimeout(timeout);
-  timeout = setTimeout(() => {
-    if (editorRef.current) {
-      localStorage.setItem(LOCAL_STORAGE_KEY, editorRef.current.innerHTML);
-    }
-  }, 300); // Batches keystrokes into 300ms groups
-};
+  const saveContent = () => {
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(() => {
+      if (editorRef.current) {
+        localStorage.setItem(LOCAL_STORAGE_KEY, editorRef.current.innerHTML);
+        saveSnapshot(); // Save history on typing
+      }
+    }, 300); 
+  };
 
-const applyFormat = (format: string) => {
+  const saveSnapshot = () => {
+    if (!editorRef.current) return;
+    const selection = window.getSelection()?.getRangeAt(0) || null;
+    setHistory(prev => [...prev, { html: editorRef.current.innerHTML, selection }]);
+    setRedoStack([]); // Clear redo after new edit
+  };
+
+  const loadContent = () => {
+    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (editorRef.current && saved) {
+      editorRef.current.innerHTML = saved;
+    }
+  };
+
+  const applyFormat = (format: string) => {
     if (!editorRef.current) return;
     const editor = editorRef.current;
     editor.focus();
@@ -46,49 +64,68 @@ const applyFormat = (format: string) => {
         range.insertNode(div);
       }
     }
-};
-
-  const loadContent = () => {
-    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (editorRef.current && saved) {
-      editorRef.current.innerHTML = saved;
-    }
+    saveSnapshot();
   };
 
-
   const insertDropdown = () => {
+    if (!editorRef.current) return;
     const select = document.createElement("select");
+    select.className = "border p-1 rounded";
     const option1 = new Option("Option 1", "1");
     const option2 = new Option("Option 2", "2");
     select.appendChild(option1);
     select.appendChild(option2);
+
     const range = window.getSelection()?.getRangeAt(0);
     if (range) {
+      range.deleteContents();
       range.insertNode(select);
     }
-    saveContent();
+    saveSnapshot();
   };
 
   const insertMention = (mention: string) => {
+    if (!editorRef.current) return;
     const span = document.createElement("span");
     span.className = "bg-blue-100 px-1 rounded text-blue-700";
     span.contentEditable = "false";
     span.innerText = `@${mention}`;
+
     const range = window.getSelection()?.getRangeAt(0);
     if (range) {
+      range.deleteContents();
       range.insertNode(span);
     }
-    saveContent();
+    saveSnapshot();
   };
 
   const undo = () => {
-    document.execCommand("undo");
-    saveContent();
+    if (history.length === 0 || !editorRef.current) return;
+    const last = history[history.length - 1];
+    setRedoStack(prev => [...prev, { html: editorRef.current.innerHTML, selection: getSelectionRange() }]);
+    setHistory(prev => prev.slice(0, prev.length - 1));
+    editorRef.current.innerHTML = last.html;
+    restoreSelection(last.selection);
   };
 
   const redo = () => {
-    document.execCommand("redo");
-    saveContent();
+    if (redoStack.length === 0 || !editorRef.current) return;
+    const next = redoStack[redoStack.length - 1];
+    setRedoStack(prev => prev.slice(0, prev.length - 1));
+    setHistory(prev => [...prev, { html: editorRef.current.innerHTML, selection: getSelectionRange() }]);
+    editorRef.current.innerHTML = next.html;
+    restoreSelection(next.selection);
+  };
+
+  const getSelectionRange = () => {
+    return window.getSelection()?.rangeCount ? window.getSelection()?.getRangeAt(0) : null;
+  };
+
+  const restoreSelection = (range: Range | null) => {
+    if (!range) return;
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
   };
 
   return {
