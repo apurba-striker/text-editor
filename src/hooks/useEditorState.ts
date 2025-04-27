@@ -1,136 +1,159 @@
-import { useState, useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 export const useEditorState = (editorRef: any) => {
   const LOCAL_STORAGE_KEY = "editor-content";
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const [history, setHistory] = useState<{ html: string; selection: Range | null }[]>([]);
-  const [redoStack, setRedoStack] = useState<{ html: string; selection: Range | null }[]>([]);
-
-  let timeout: NodeJS.Timeout | null = null;
-
-  const saveContent = () => {
-    if (timeout) clearTimeout(timeout);
-    timeout = setTimeout(() => {
+  const saveContent = useCallback(() => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => {
       if (editorRef.current) {
         localStorage.setItem(LOCAL_STORAGE_KEY, editorRef.current.innerHTML);
-        saveSnapshot(); // Save history on typing
       }
-    }, 300); 
-  };
+    }, 300);
+  }, [editorRef]);
 
-  const saveSnapshot = () => {
-    if (!editorRef.current) return;
-    const selection = window.getSelection()?.getRangeAt(0) || null;
-    setHistory(prev => [...prev, { html: editorRef.current.innerHTML, selection }]);
-    setRedoStack([]); // Clear redo after new edit
-  };
-
-  const loadContent = () => {
+  const loadContent = useCallback(() => {
     const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (editorRef.current && saved) {
       editorRef.current.innerHTML = saved;
     }
-  };
+  }, [editorRef]);
 
-  const applyFormat = (format: string) => {
+  const applyFormat = useCallback((format: string) => {
     if (!editorRef.current) return;
     const editor = editorRef.current;
     editor.focus();
 
-    if (format === "bold") document.execCommand("bold");
-    else if (format === "italic") document.execCommand("italic");
-    else if (format === "underline") document.execCommand("underline");
-    else if (format === "formatBlock_h1") document.execCommand("formatBlock", false, "h1");
-    else if (format === "formatBlock_h2") document.execCommand("formatBlock", false, "h2");
-    else if (format === "insertUnorderedList") document.execCommand("insertUnorderedList");
-    else if (format === "insertOrderedList") document.execCommand("insertOrderedList");
-    else if (format === "quote") document.execCommand("formatBlock", false, "blockquote");
-    else if (format === "codeBlock") {
-      const pre = document.createElement("pre");
-      pre.textContent = window.getSelection()?.toString() || "";
-      const range = window.getSelection()?.getRangeAt(0);
-      if (range) {
-        range.deleteContents();
-        range.insertNode(pre);
+    switch (format) {
+      case "bold":
+        document.execCommand("bold");
+        break;
+      case "italic":
+        document.execCommand("italic");
+        break;
+      case "underline":
+        document.execCommand("underline");
+        break;
+      case "formatBlock_h1":
+        document.execCommand("formatBlock", false, "h1");
+        break;
+      case "formatBlock_h2":
+        document.execCommand("formatBlock", false, "h2");
+        break;
+      case "insertUnorderedList":
+        document.execCommand("insertUnorderedList");
+        break;
+      case "insertOrderedList":
+        document.execCommand("insertOrderedList");
+        break;
+      case "quote":
+        document.execCommand("formatBlock", false, "blockquote");
+        break;
+      case "codeBlock": {
+        const pre = document.createElement("pre");
+        pre.textContent = window.getSelection()?.toString() || "";
+        const range = window.getSelection()?.getRangeAt(0);
+        if (range) {
+          range.deleteContents();
+          range.insertNode(pre);
+        }
+        break;
       }
-    }
-    else if (format === "callout") {
-      const div = document.createElement("div");
-      div.className = "p-2 border-l-4 border-blue-400 bg-blue-50";
-      div.textContent = window.getSelection()?.toString() || "Callout text here...";
-      const range = window.getSelection()?.getRangeAt(0);
-      if (range) {
-        range.deleteContents();
-        range.insertNode(div);
+      case "callout": {
+        const div = document.createElement("div");
+        div.className = "p-2 border-l-4 border-blue-400 bg-blue-50";
+        div.textContent = window.getSelection()?.toString() || "Callout text here...";
+        const range = window.getSelection()?.getRangeAt(0);
+        if (range) {
+          range.deleteContents();
+          range.insertNode(div);
+        }
+        break;
       }
+      default:
+        break;
     }
-    saveSnapshot();
-  };
+    saveContent();
+  }, [editorRef, saveContent]);
 
-  const insertDropdown = () => {
+  const insertMention = useCallback((mention: string) => {
     if (!editorRef.current) return;
-    const select = document.createElement("select");
-    select.className = "border p-1 rounded";
-    const option1 = new Option("Option 1", "1");
-    const option2 = new Option("Option 2", "2");
-    select.appendChild(option1);
-    select.appendChild(option2);
 
-    const range = window.getSelection()?.getRangeAt(0);
-    if (range) {
-      range.deleteContents();
-      range.insertNode(select);
-    }
-    saveSnapshot();
-  };
+    editorRef.current.focus();
 
-  const insertMention = (mention: string) => {
-    if (!editorRef.current) return;
-    const span = document.createElement("span");
-    span.className = "bg-blue-100 px-1 rounded text-blue-700";
-    span.contentEditable = "false";
-    span.innerText = `@${mention}`;
-
-    const range = window.getSelection()?.getRangeAt(0);
-    if (range) {
-      range.deleteContents();
-      range.insertNode(span);
-    }
-    saveSnapshot();
-  };
-
-  const undo = () => {
-    if (history.length === 0 || !editorRef.current) return;
-    const last = history[history.length - 1];
-    setRedoStack(prev => [...prev, { html: editorRef.current.innerHTML, selection: getSelectionRange() }]);
-    setHistory(prev => prev.slice(0, prev.length - 1));
-    editorRef.current.innerHTML = last.html;
-    restoreSelection(last.selection);
-  };
-
-  const redo = () => {
-    if (redoStack.length === 0 || !editorRef.current) return;
-    const next = redoStack[redoStack.length - 1];
-    setRedoStack(prev => prev.slice(0, prev.length - 1));
-    setHistory(prev => [...prev, { html: editorRef.current.innerHTML, selection: getSelectionRange() }]);
-    editorRef.current.innerHTML = next.html;
-    restoreSelection(next.selection);
-  };
-
-  const getSelectionRange = () => {
-    return window.getSelection()?.rangeCount ? window.getSelection()?.getRangeAt(0) : null;
-  };
-
-  const restoreSelection = (range: Range | null) => {
-    if (!range) return;
     const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-  };
+    if (!selection || selection.rangeCount === 0) return;
+
+    const range = selection.getRangeAt(0);
+    const node = range.startContainer;
+
+    if (node.nodeType === Node.TEXT_NODE) {
+      const textNode = node as Text;
+      const text = textNode.textContent || "";
+      const atIndex = text.lastIndexOf("@", range.startOffset - 1);
+
+      if (atIndex !== -1) {
+        const beforeAt = text.substring(0, atIndex);
+        const afterAt = text.substring(range.startOffset);
+
+        // Replace current text
+        const beforeNode = document.createTextNode(beforeAt);
+        const afterNode = document.createTextNode(afterAt);
+
+        const mentionSpan = document.createElement("span");
+        mentionSpan.className = "bg-blue-100 px-1 rounded text-blue-700 cursor-pointer hover:bg-blue-200 transition";
+        mentionSpan.contentEditable = "false";
+        mentionSpan.innerText = `@${mention}`;
+        mentionSpan.title = `Mention: ${mention}`;
+
+        const parent = textNode.parentNode;
+        if (parent) {
+          parent.replaceChild(afterNode, textNode);
+          parent.insertBefore(mentionSpan, afterNode);
+          parent.insertBefore(beforeNode, mentionSpan);
+
+          const space = document.createTextNode("\u00A0");
+          parent.insertBefore(space, afterNode);
+
+          // Move cursor after space
+          const newRange = document.createRange();
+          newRange.setStartAfter(space);
+          newRange.collapse(true);
+
+          selection.removeAllRanges();
+          selection.addRange(newRange);
+        }
+      }
+    }
+    saveContent();
+  }, [editorRef, saveContent]);
+
+  const undo = useCallback(() => {
+    document.execCommand("undo");
+    saveContent();
+  }, [saveContent]);
+
+  const redo = useCallback(() => {
+    document.execCommand("redo");
+    saveContent();
+  }, [saveContent]);
+
+  // Auto-save on typing
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    const handler = () => saveContent();
+    editor.addEventListener("input", handler);
+
+    return () => {
+      editor.removeEventListener("input", handler);
+    };
+  }, [editorRef, saveContent]);
 
   return {
     applyFormat,
-    insertDropdown,
     insertMention,
     undo,
     redo,
